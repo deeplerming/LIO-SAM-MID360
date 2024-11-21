@@ -1,3 +1,4 @@
+#include "ros/console.h"
 #include "utility.h"
 #include "lio_sam/cloud_info.h"
 
@@ -14,7 +15,7 @@ POINT_CLOUD_REGISTER_POINT_STRUCT (VelodynePointXYZIRT,
     (uint16_t, ring, ring) (float, time, time)
 )
 
-struct LiovxPointCustomMsg
+struct LivoxPointCustomMsg
 {
     PCL_ADD_POINT4D
     PCL_ADD_INTENSITY;
@@ -23,7 +24,7 @@ struct LiovxPointCustomMsg
     uint16_t tag;
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 } EIGEN_ALIGN16;
-POINT_CLOUD_REGISTER_POINT_STRUCT (LiovxPointCustomMsg,
+POINT_CLOUD_REGISTER_POINT_STRUCT (LivoxPointCustomMsg,
     (float, x, x) (float, y, y) (float, z, z) (float, intensity, intensity) (float, time, time)
     (uint16_t, ring, ring) (uint16_t, tag, tag)
 )
@@ -45,7 +46,7 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(OusterPointXYZIRT,
 )
 
 // Use the Velodyne point format as a common representation
-using PointXYZIRT = LiovxPointCustomMsg;
+using PointXYZIRT = LivoxPointCustomMsg;
 
 const int queueLength = 2000;
 
@@ -208,6 +209,7 @@ public:
         resetParameters();
     }
 
+// use in GLIO can work ??
     void moveFromCustomMsg(livox_ros_driver::CustomMsg &Msg, pcl::PointCloud<PointXYZIRT> & cloud)
     {
         cloud.clear();
@@ -501,6 +503,7 @@ public:
         return newPoint;
     }
 
+	// project laserCloudIn into lidar end time.
     void projectPointCloud()
     {
         int cloudSize = laserCloudIn->points.size();
@@ -519,9 +522,10 @@ public:
                 continue;
 
             int rowIdn = laserCloudIn->points[i].ring;
+			// invalid point
             if (rowIdn < 0 || rowIdn >= N_SCAN)
                 continue;
-
+			// downsample
             if (rowIdn % downsampleRate != 0)
                 continue;
 
@@ -584,8 +588,10 @@ public:
     void publishClouds()
     {
         cloudInfo.header = cloudHeader;
+		// publish all point clouds in a Frame
         cloudInfo.cloud_deskewed  = publishCloud(pubExtractedCloud, extractedCloud, cloudHeader.stamp, lidarFrame);
-        pubLaserCloudInfo.publish(cloudInfo);
+        // publish liosam point cloud include features
+		pubLaserCloudInfo.publish(cloudInfo);
     }
 };
 

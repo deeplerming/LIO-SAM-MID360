@@ -15,7 +15,7 @@
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
 
-#include <opencv/cv.h>
+#include <opencv2/imgproc.hpp>
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -117,8 +117,11 @@ public:
     // LOAM
     float edgeThreshold;
     float surfThreshold;
+	float cyliThreshold;
+	float cyliTestThreshold;
     int edgeFeatureMinValidNum;
     int surfFeatureMinValidNum;
+	int cyliFeatureMinValidNum;
 
     // voxel filter paprams
     float odometrySurfLeafSize;
@@ -219,6 +222,8 @@ public:
 
         nh.param<float>("lio_sam/edgeThreshold", edgeThreshold, 0.1);
         nh.param<float>("lio_sam/surfThreshold", surfThreshold, 0.1);
+		nh.param<float>("lio_sam/cyliThreshold", cyliThreshold, 0.2);
+		nh.param<float>("lio_sam/cyliTestThreshold", cyliTestThreshold, 0.02);
         nh.param<int>("lio_sam/edgeFeatureMinValidNum", edgeFeatureMinValidNum, 10);
         nh.param<int>("lio_sam/surfFeatureMinValidNum", surfFeatureMinValidNum, 100);
 
@@ -251,58 +256,66 @@ public:
 
         usleep(100);
     }
-
+	// 把IMU的信息，从IMU坐标系，转换到雷达坐标系
     sensor_msgs::Imu imuConverter(const sensor_msgs::Imu &imu_in) 
     {
-    sensor_msgs::Imu imu_out = imu_in;
-    // rotate acceleration
-    Eigen::Vector3d acc(imu_in.linear_acceleration.x, imu_in.linear_acceleration.y, imu_in.linear_acceleration.z);
-    //livox 内置的六轴imu的加速度单位是g 这里要还原到m/s^2
-    if(imuType==0)
-        acc*=imuGravity;
+		sensor_msgs::Imu imu_out = imu_in;
+		// rotate acceleration
+		Eigen::Vector3d acc(imu_in.linear_acceleration.x, imu_in.linear_acceleration.y, imu_in.linear_acceleration.z);
+		//livox 内置的六轴imu的加速度单位是g 这里要还原到m/s^2
+		if(imuType==0)
+			acc*=imuGravity;
 
-    acc = extRot * acc;
-    imu_out.linear_acceleration.x = acc.x();
-    imu_out.linear_acceleration.y = acc.y();
-    imu_out.linear_acceleration.z = acc.z();
-    // rotate gyroscope
-    Eigen::Vector3d gyr(imu_in.angular_velocity.x, imu_in.angular_velocity.y, imu_in.angular_velocity.z);
-    gyr = extRot * gyr;
-    imu_out.angular_velocity.x = gyr.x();
-    imu_out.angular_velocity.y = gyr.y();
-    imu_out.angular_velocity.z = gyr.z();
-    // rotate roll pitch yaw
-    Eigen::Quaterniond q_from(imu_in.orientation.w, imu_in.orientation.x, imu_in.orientation.y,
-                                imu_in.orientation.z);
-    Eigen::Quaterniond q_final;
+		acc = extRot * acc;
+		imu_out.linear_acceleration.x = acc.x();
+		imu_out.linear_acceleration.y = acc.y();
+		imu_out.linear_acceleration.z = acc.z();
+		// rotate gyroscope
+		Eigen::Vector3d gyr(imu_in.angular_velocity.x, imu_in.angular_velocity.y, imu_in.angular_velocity.z);
+		gyr = extRot * gyr;
+		imu_out.angular_velocity.x = gyr.x();
+		imu_out.angular_velocity.y = gyr.y();
+		imu_out.angular_velocity.z = gyr.z();
+		// rotate roll pitch yaw
+		Eigen::Quaterniond q_from(imu_in.orientation.w, imu_in.orientation.x, imu_in.orientation.y,
+									imu_in.orientation.z);
+		Eigen::Quaterniond q_final;
 
-    if (imuType == 0)
-    {
-        q_final = extQRPY;
-    }
-    else if (imuType == 1)
-    {
-        q_final = q_from * extQRPY;
-    }
-    else
-        std::cout << "pls set your imu_type, 0 for 6axis and 1 for 9axis" << std::endl;
+		if (imuType == 0)
+		{
+			q_final = extQRPY;
+		}
+		else if (imuType == 1)
+		{
+			q_final = q_from * extQRPY;
+		}
+		else
+			std::cout << "pls set your imu_type, 0 for 6axis and 1 for 9axis" << std::endl;
 
-    q_final.normalize();
-    imu_out.orientation.x = q_final.x();
-    imu_out.orientation.y = q_final.y();
-    imu_out.orientation.z = q_final.z();
-    imu_out.orientation.w = q_final.w();
+		q_final.normalize();
+		imu_out.orientation.x = q_final.x();
+		imu_out.orientation.y = q_final.y();
+		imu_out.orientation.z = q_final.z();
+		imu_out.orientation.w = q_final.w();
 
-    if (sqrt(
-            q_final.x() * q_final.x() + q_final.y() * q_final.y() + q_final.z() * q_final.z() +
-            q_final.w() * q_final.w())
-        < 0.1) {
-        ROS_ERROR("Invalid quaternion, please use a 9-axis IMU!");
-        ros::shutdown();
-    }
+		if (sqrt(
+				q_final.x() * q_final.x() + q_final.y() * q_final.y() + q_final.z() * q_final.z() +
+				q_final.w() * q_final.w())
+			< 0.1) {
+			ROS_ERROR("Invalid quaternion, please use a 9-axis IMU!");
+			ros::shutdown();
+		}
 
-    return imu_out;
-}
+		return imu_out;
+	}
+};
+
+class cylinder{
+public:
+	cylinder();
+private:
+	double r;
+	double omega_m[4];
 };
 
 template<typename T>

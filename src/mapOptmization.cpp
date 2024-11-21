@@ -1,3 +1,4 @@
+#include "pcl_conversions/pcl_conversions.h"
 #include "utility.h"
 #include "lio_sam/cloud_info.h"
 #include "lio_sam/save_map.h"
@@ -94,10 +95,12 @@ public:
 
     pcl::PointCloud<PointType>::Ptr laserCloudCornerLast; // corner feature set from odoOptimization
     pcl::PointCloud<PointType>::Ptr laserCloudSurfLast; // surf feature set from odoOptimization
+	pcl::PointCloud<PointType>::Ptr laserCloudCyliLast;
     pcl::PointCloud<PointType>::Ptr laserCloudCornerLast1; // corner feature set from odoOptimization
     pcl::PointCloud<PointType>::Ptr laserCloudSurfLast1; // surf feature set from odoOptimization
     pcl::PointCloud<PointType>::Ptr laserCloudCornerLastDS; // downsampled corner feature set from odoOptimization
     pcl::PointCloud<PointType>::Ptr laserCloudSurfLastDS; // downsampled surf feature set from odoOptimization
+	pcl::PointCloud<PointType>::Ptr laserCloudCyliLastDS;
 
     pcl::PointCloud<PointType>::Ptr laserCloudOri;
     pcl::PointCloud<PointType>::Ptr coeffSel;
@@ -205,11 +208,13 @@ public:
 
         laserCloudCornerLast.reset(new pcl::PointCloud<PointType>()); // corner feature set from odoOptimization
         laserCloudSurfLast.reset(new pcl::PointCloud<PointType>()); // surf feature set from odoOptimization
+		laserCloudCyliLast.reset(new pcl::PointCloud<PointType>());
         laserCloudCornerLast1.reset(new pcl::PointCloud<PointType>()); // corner feature set from odoOptimization
         laserCloudSurfLast1.reset(new pcl::PointCloud<PointType>()); // surf feature set from odoOptimization
 
         laserCloudCornerLastDS.reset(new pcl::PointCloud<PointType>()); // downsampled corner featuer set from odoOptimization
         laserCloudSurfLastDS.reset(new pcl::PointCloud<PointType>()); // downsampled surf featuer set from odoOptimization
+		laserCloudCyliLastDS.reset(new pcl::PointCloud<PointType>());
 
         laserCloudOri.reset(new pcl::PointCloud<PointType>());
         coeffSel.reset(new pcl::PointCloud<PointType>());
@@ -249,6 +254,7 @@ public:
         cloudInfo = *msgIn;
         pcl::fromROSMsg(msgIn->cloud_corner,  *laserCloudCornerLast);
         pcl::fromROSMsg(msgIn->cloud_surface, *laserCloudSurfLast);
+		pcl::fromROSMsg(msgIn->cloud_cylinder, *laserCloudCyliLast );
 
         std::lock_guard<std::mutex> lock(mtx);
 
@@ -988,6 +994,11 @@ public:
         downSizeFilterSurf.setInputCloud(laserCloudSurfLast);
         downSizeFilterSurf.filter(*laserCloudSurfLastDS);
         laserCloudSurfLastDSNum = laserCloudSurfLastDS->size();
+
+		laserCloudCyliLastDS->clear();
+        downSizeFilterSurf.setInputCloud(laserCloudCyliLast);
+        downSizeFilterSurf.filter(*laserCloudCyliLastDS);
+        laserCloudSurfLastDSNum = laserCloudCyliLastDS->size();
     }
 
     void updatePointAssociateToMap()
