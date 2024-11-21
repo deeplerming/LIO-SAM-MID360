@@ -1,5 +1,6 @@
 #include "ros/console.h"
 #include "ros/publisher.h"
+#include "sensor_msgs/PointCloud2.h"
 #include "utility.h"
 #include "lio_sam/cloud_info.h"
 #include "pcl/kdtree/kdtree.h"
@@ -26,11 +27,13 @@ public:
     ros::Publisher pubCornerPoints;
     ros::Publisher pubSurfacePoints;
 	ros::Publisher pubCylinderPoints;
+	ros::Publisher pubCylinderNearestPoints;
 
     pcl::PointCloud<PointType>::Ptr extractedCloud;
     pcl::PointCloud<PointType>::Ptr cornerCloud;
     pcl::PointCloud<PointType>::Ptr surfaceCloud;
 	pcl::PointCloud<PointType>::Ptr cylinderCloud;
+	pcl::PointCloud<PointType>::Ptr cylinderNearestCloud;
 
     pcl::VoxelGrid<PointType> downSizeFilter;
 
@@ -51,7 +54,8 @@ public:
         pubCornerPoints = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/feature/cloud_corner", 1);
         pubSurfacePoints = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/feature/cloud_surface", 1);
 		pubCylinderPoints = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/feature/cloud_cylinder", 1);
-        
+		pubCylinderNearestPoints = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/feature/cloud_cylinder_nearest", 1);
+
         initializationValue();
     }
 
@@ -65,6 +69,7 @@ public:
         cornerCloud.reset(new pcl::PointCloud<PointType>());
         surfaceCloud.reset(new pcl::PointCloud<PointType>());
 		cylinderCloud.reset(new pcl::PointCloud<PointType>());
+		cylinderNearestCloud.reset(new pcl::PointCloud<PointType>());
 
 		// 
         cloudCurvature = new float[N_SCAN*Horizon_SCAN];
@@ -108,29 +113,62 @@ public:
 	// outlier process  Occluded points  LiLi loam 
     void markOccludedPoints()
     {
+		cornerCloud->clear();
+        surfaceCloud->clear();
+		cylinderCloud->clear();
         int cloudSize = extractedCloud->points.size();
         // mark occluded points and parallel beam points
+		// int position = 5;
+		// int length = 1;
+		// int last_continuios_length = 0;
         for (int i = 5; i < cloudSize - 6; ++i)
         {
             // occluded points
             float depth1 = cloudInfo.pointRange[i];
             float depth2 = cloudInfo.pointRange[i+1];
             int columnDiff = std::abs(int(cloudInfo.pointColInd[i+1] - cloudInfo.pointColInd[i]));
+			// int surfthres = 20/depth1;
+			// int cylithres = 10/depth1;
 
             // 两个激光点之间的一维索引差值，如果在一条扫描线上，那么值为1；
             // 如果两个点之间有一些无效点被剔除了，可能会比1大，但不会特别大
             // 如果恰好前一个点在扫描一周的结束时刻，下一个点是另一条扫描线的起始时刻，那么值会很大
+			// 提取树干部分和地面部分，树叶部分滤除
             if (columnDiff < 10){
                 // 10 pixel diff in range image
-                if (depth1 - depth2 > 0.3){
+                if (depth1 - depth2 > 0.08){
                     cloudNeighborPicked[i - 1] = 1;
                     cloudNeighborPicked[i] = 1;
-                }else if (depth2 - depth1 > 0.3){
+					// cloudLabel[i] = -1;
+					// cloudLabel[i-1] = -1;
+					// last_continuios_length = length;
+					// length = 0;
+                }else if (depth2 - depth1 > 0.08){
                     cloudNeighborPicked[i + 1] = 1;
                     cloudNeighborPicked[i + 2] = 1;
+					// cloudLabel[i+1] = -1;
+					// cloudLabel[i+2] = -1;
+					// last_continuios_length = length;
+					// length = 0;
                 }
+				// else {
+				// 	length++;
+				// }
             }
-            // parallel beam // 没什么用 ，这个场景不太需要考虑
+			// if (last_continuios_length > surfthres)
+			// {
+			// 	for (int j = 0; j < surfthres/3; j++)
+			// 		surfaceCloud->push_back(extractedCloud->points[i-3*j]);
+			// 	last_continuios_length = 0;
+			// }
+			// if (last_continuios_length > cylithres)
+			// {
+			// 	for (int j = 0; j < cylithres/3; j++)
+			// 		cylinderCloud->push_back(extractedCloud->points[i - 3*j]);
+			// 	last_continuios_length = 0;
+			// 	// cylinderCloud->push_back(extractedCloud->points[i - 8]);
+			// }
+	        // parallel beam // 没什么用 ，这个场景不太需要考虑
             float diff1 = std::abs(float(cloudInfo.pointRange[i-1] - cloudInfo.pointRange[i]));
             float diff2 = std::abs(float(cloudInfo.pointRange[i+1] - cloudInfo.pointRange[i]));
 
@@ -144,10 +182,12 @@ public:
         cornerCloud->clear();
         surfaceCloud->clear();
 		cylinderCloud->clear();
+		cylinderNearestCloud->clear();
 
         pcl::PointCloud<PointType>::Ptr surfaceCloudScan(new pcl::PointCloud<PointType>());
         pcl::PointCloud<PointType>::Ptr surfaceCloudScanDS(new pcl::PointCloud<PointType>());
-
+        pcl::PointCloud<PointType>::Ptr cylinderCloudScan(new pcl::PointCloud<PointType>());
+        pcl::PointCloud<PointType>::Ptr cylinderCloudScanDS(new pcl::PointCloud<PointType>());
         for (int i = 0; i < N_SCAN; i++)
         {
             surfaceCloudScan->clear();
@@ -221,46 +261,49 @@ public:
 					if(cloudNeighborPicked[ind] == 0 && cloudCurvature[ind] > cyliThreshold)
 					{
 						int m;
-						double range = 0.0;
+						double range = pointDistance(extractedCloud->points[ind]);
                         cloudLabel[ind] = 2;
 						cloudNeighborPicked[ind] = 1;
-						// ROS_ERROR("try to get cylinder feature");
-						for (m = 1; m <= 2; m++)
+
+						for (m = 1; m <= 1; m++)
 						{
-							if (std::abs(int(cloudInfo.pointColInd[ind + m] - cloudInfo.pointColInd[ind + m - 1])) > 10)
+							if (std::abs(int(cloudInfo.pointColInd[ind + m] - cloudInfo.pointColInd[ind + m - 1])) > 10 
+								|| range > pointDistance(extractedCloud->points[ind + m]))
 							{
 								break;
 							}
 							cloudNeighborPicked[ind + m] = 1;
 						}
-						if (m == 2)
+						if (m == 1)
 						{
-							for (m = -1; m >= -2; m--)
+							for (m = -1; m >= -1; m--)
 							{
-								if (std::abs(int(cloudInfo.pointColInd[ind + m] - cloudInfo.pointColInd[ind + m - 1])) > 10)
+								if (std::abs(int(cloudInfo.pointColInd[ind + m] - cloudInfo.pointColInd[ind + m - 1])) > 10
+									|| range > pointDistance(extractedCloud->points[ind + m]))
 								{
 									break;
 								}
 								cloudNeighborPicked[ind + m] = 1;
 							}	
 						}
-						if (m == -2 && range > 4 * pointDistance(extractedCloud->points[ind]))	
+						if (m == -1)
 						{
-							ROS_ERROR("get a best point");
 							cloudLabel[ind] = 3;		// label 3 used to cal cylinder param
+							cylinderNearestCloud->push_back(extractedCloud->points[ind]);
 							// find nearest in next line ? but only 4 line here...
 						}
-						cylinderCloud->push_back(extractedCloud->points[ind]);	
-
-						// ROS_ERROR("get cylinder feature");			
+						cylinderCloud->push_back(extractedCloud->points[ind]);
 					}
                 }
 
                 for (int k = sp; k <= ep; k++)
                 {
-                    if (cloudLabel[k] < 0){
-                        surfaceCloudScan->push_back(extractedCloud->points[k]);
+                    if (cloudLabel[k] > 0){
+                        cylinderCloudScan->push_back(extractedCloud->points[k]);
                     }
+					if (cloudLabel[k] <= 0){
+						surfaceCloudScan->push_back(extractedCloud->points[k]);
+					}
                 }
             }
 
@@ -268,7 +311,12 @@ public:
             downSizeFilter.setInputCloud(surfaceCloudScan);
             downSizeFilter.filter(*surfaceCloudScanDS);
 
-            *surfaceCloud += *surfaceCloudScanDS;
+            cylinderCloudScanDS->clear();
+            downSizeFilter.setInputCloud(surfaceCloudScan);
+            downSizeFilter.filter(*cylinderCloudScanDS);			
+
+            *cylinderCloud += *cylinderCloudScanDS;
+			*surfaceCloud += *surfaceCloudScanDS;
         }
     }
 
@@ -289,7 +337,8 @@ public:
         cloudInfo.cloud_surface = publishCloud(pubSurfacePoints, surfaceCloud, cloudHeader.stamp, lidarFrame);
 		// publish cylinder features
 		cloudInfo.cloud_cylinder = publishCloud(pubCylinderPoints, cylinderCloud, cloudHeader.stamp, lidarFrame);
-		std::cout << cylinderCloud->size() << "\t" << surfaceCloud->size() << "\t" << cornerCloud->size() << std::endl;
+		sensor_msgs::PointCloud2 cylinder_nearest = publishCloud(pubCylinderNearestPoints, cylinderNearestCloud, cloudHeader.stamp, lidarFrame);
+		std::cout << cylinderCloud->size() << "\t" << surfaceCloud->size() << "\t" << cornerCloud->size() << "\t" << cylinderNearestCloud->size() << std::endl;
         // publish to mapOptimization
         pubLaserCloudInfo.publish(cloudInfo);
     }

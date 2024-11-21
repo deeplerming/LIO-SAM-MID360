@@ -14,6 +14,7 @@ Panels:
         - /Mapping1
         - /Mapping1/Map (cloud)1
         - /Mapping1/Map (global)1
+        - /PointCloud21
       Splitter Ratio: 0.5600000023841858
     Tree Height: 993
   - Class: rviz/Selection
@@ -322,7 +323,7 @@ Visualization Manager:
           Position Transformer: XYZ
           Queue Size: 10
           Selectable: true
-          Size (Pixels): 10
+          Size (Pixels): 3
           Size (m): 0.009999999776482582
           Style: Points
           Topic: /lio_sam/feature/cloud_cylinder
@@ -506,6 +507,34 @@ Visualization Manager:
           Value: true
       Enabled: false
       Name: Mapping
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 237; 212; 0
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Min Color: 0; 0; 0
+      Name: PointCloud2
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 10
+      Size (m): 0.009999999776482582
+      Style: Points
+      Topic: /lio_sam/feature/cloud_cylinder_nearest
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 0; 0; 0
@@ -522,7 +551,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 22.813121795654297
+      Distance: 35.89689254760742
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
