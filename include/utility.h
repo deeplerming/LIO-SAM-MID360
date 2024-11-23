@@ -127,6 +127,7 @@ public:
     float odometrySurfLeafSize;
     float mappingCornerLeafSize;
     float mappingSurfLeafSize ;
+	float mappingCyliLeafSize;
 
     float z_tollerance; 
     float rotation_tollerance;

@@ -87,6 +87,7 @@ public:
 
     vector<pcl::PointCloud<PointType>::Ptr> cornerCloudKeyFrames;
     vector<pcl::PointCloud<PointType>::Ptr> surfCloudKeyFrames;
+	vector<pcl::PointCloud<PointType>::Ptr> cyliCloudKeyFrames;
     
     pcl::PointCloud<PointType>::Ptr cloudKeyPoses3D;
     pcl::PointCloud<PointTypePose>::Ptr cloudKeyPoses6D;
@@ -111,21 +112,28 @@ public:
     std::vector<PointType> laserCloudOriSurfVec; // surf point holder for parallel computation
     std::vector<PointType> coeffSelSurfVec;
     std::vector<bool> laserCloudOriSurfFlag;
+    std::vector<PointType> laserCloudOriCyliVec; // cyli point holder for parallel computation
+    std::vector<PointType> coeffSelCyliVec;
+    std::vector<bool> laserCloudOriCyliFlag;	
 
     map<int, pair<pcl::PointCloud<PointType>, pcl::PointCloud<PointType>>> laserCloudMapContainer;
     pcl::PointCloud<PointType>::Ptr laserCloudCornerFromMap;
     pcl::PointCloud<PointType>::Ptr laserCloudSurfFromMap;
     pcl::PointCloud<PointType>::Ptr laserCloudCornerFromMapDS;
     pcl::PointCloud<PointType>::Ptr laserCloudSurfFromMapDS;
+    pcl::PointCloud<PointType>::Ptr laserCloudCyliFromMap;
+    pcl::PointCloud<PointType>::Ptr laserCloudCyliFromMapDS;
 
     pcl::KdTreeFLANN<PointType>::Ptr kdtreeCornerFromMap;
     pcl::KdTreeFLANN<PointType>::Ptr kdtreeSurfFromMap;
+	pcl::KdTreeFLANN<PointType>::Ptr kdtreeCyliFromMap;
 
     pcl::KdTreeFLANN<PointType>::Ptr kdtreeSurroundingKeyPoses;
     pcl::KdTreeFLANN<PointType>::Ptr kdtreeHistoryKeyPoses;
 
     pcl::VoxelGrid<PointType> downSizeFilterCorner;
     pcl::VoxelGrid<PointType> downSizeFilterSurf;
+	pcl::VoxelGrid<PointType> downSizeFilterCyli;
     pcl::VoxelGrid<PointType> downSizeFilterICP;
     pcl::VoxelGrid<PointType> downSizeFilterSurroundingKeyPoses; // for surrounding key poses of scan-to-map optimization
     
@@ -142,8 +150,10 @@ public:
 
     int laserCloudCornerFromMapDSNum = 0;
     int laserCloudSurfFromMapDSNum = 0;
+	int laserCloudCyliFromMapDSNum = 0;
     int laserCloudCornerLastDSNum = 0;
     int laserCloudSurfLastDSNum = 0;
+	int laserCloudCyliLastDSNum = 0;
 
     bool aLoopIsClosed = false;
     map<int, int> loopIndexContainer; // from new to old
@@ -154,8 +164,8 @@ public:
 
     nav_msgs::Path globalPath;
 
-    Eigen::Affine3f transPointAssociateToMap;
-    Eigen::Affine3f incrementalOdometryAffineFront;
+    Eigen::Affine3f transPointAssociateToMap;			// point from lidar to map
+    Eigen::Affine3f incrementalOdometryAffineFront;		//
     Eigen::Affine3f incrementalOdometryAffineBack;
 
 
@@ -190,6 +200,8 @@ public:
 
         downSizeFilterCorner.setLeafSize(mappingCornerLeafSize, mappingCornerLeafSize, mappingCornerLeafSize);
         downSizeFilterSurf.setLeafSize(mappingSurfLeafSize, mappingSurfLeafSize, mappingSurfLeafSize);
+		downSizeFilterCyli.setLeafSize(mappingCyliLeafSize, mappingCyliLeafSize, mappingCyliLeafSize);
+
         downSizeFilterICP.setLeafSize(mappingSurfLeafSize, mappingSurfLeafSize, mappingSurfLeafSize);
         downSizeFilterSurroundingKeyPoses.setLeafSize(surroundingKeyframeDensity, surroundingKeyframeDensity, surroundingKeyframeDensity); // for surrounding key poses of scan-to-map optimization
 
@@ -225,17 +237,24 @@ public:
         laserCloudOriSurfVec.resize(N_SCAN * Horizon_SCAN);
         coeffSelSurfVec.resize(N_SCAN * Horizon_SCAN);
         laserCloudOriSurfFlag.resize(N_SCAN * Horizon_SCAN);
+        laserCloudOriCyliVec.resize(N_SCAN * Horizon_SCAN);
+        coeffSelCyliVec.resize(N_SCAN * Horizon_SCAN);
+        laserCloudOriCyliFlag.resize(N_SCAN * Horizon_SCAN);
 
         std::fill(laserCloudOriCornerFlag.begin(), laserCloudOriCornerFlag.end(), false);
         std::fill(laserCloudOriSurfFlag.begin(), laserCloudOriSurfFlag.end(), false);
+		std::fill(laserCloudOriCyliFlag.begin(), laserCloudOriCyliFlag.end(), false);
 
         laserCloudCornerFromMap.reset(new pcl::PointCloud<PointType>());
         laserCloudSurfFromMap.reset(new pcl::PointCloud<PointType>());
+		laserCloudCyliFromMap.reset(new pcl::PointCloud<PointType>());
         laserCloudCornerFromMapDS.reset(new pcl::PointCloud<PointType>());
         laserCloudSurfFromMapDS.reset(new pcl::PointCloud<PointType>());
+		laserCloudCyliFromMapDS.reset(new pcl::PointCloud<PointType>());
 
         kdtreeCornerFromMap.reset(new pcl::KdTreeFLANN<PointType>());
         kdtreeSurfFromMap.reset(new pcl::KdTreeFLANN<PointType>());
+		kdtreeCyliFromMap.reset(new pcl::KdTreeFLANN<PointType>());
 
         for (int i = 0; i < 6; ++i){
             transformTobeMapped[i] = 0;
@@ -384,68 +403,78 @@ public:
 
     bool saveMapService(lio_sam::save_mapRequest& req, lio_sam::save_mapResponse& res)
     {
-      string saveMapDirectory;
+		string saveMapDirectory;
 
-      cout << "****************************************************" << endl;
-      cout << "Saving map to pcd files ..." << endl;
-      if(req.destination.empty()) saveMapDirectory = std::getenv("HOME") + savePCDDirectory;
-      else saveMapDirectory = std::getenv("HOME") + req.destination;
-      cout << "Save destination: " << saveMapDirectory << endl;
-      // create directory and remove old files;
-      int unused = system((std::string("exec rm -r ") + saveMapDirectory).c_str());
-      unused = system((std::string("mkdir -p ") + saveMapDirectory).c_str());
-      // save key frame transformations
-      pcl::io::savePCDFileBinary(saveMapDirectory + "/trajectory.pcd", *cloudKeyPoses3D);
-      pcl::io::savePCDFileBinary(saveMapDirectory + "/transformations.pcd", *cloudKeyPoses6D);
-      // extract global point cloud map
-      pcl::PointCloud<PointType>::Ptr globalCornerCloud(new pcl::PointCloud<PointType>());
-      pcl::PointCloud<PointType>::Ptr globalCornerCloudDS(new pcl::PointCloud<PointType>());
-      pcl::PointCloud<PointType>::Ptr globalSurfCloud(new pcl::PointCloud<PointType>());
-      pcl::PointCloud<PointType>::Ptr globalSurfCloudDS(new pcl::PointCloud<PointType>());
-      pcl::PointCloud<PointType>::Ptr globalMapCloud(new pcl::PointCloud<PointType>());
-      for (int i = 0; i < (int)cloudKeyPoses3D->size(); i++) {
-          *globalCornerCloud += *transformPointCloud(cornerCloudKeyFrames[i],  &cloudKeyPoses6D->points[i]);
-          *globalSurfCloud   += *transformPointCloud(surfCloudKeyFrames[i],    &cloudKeyPoses6D->points[i]);
-          cout << "\r" << std::flush << "Processing feature cloud " << i << " of " << cloudKeyPoses6D->size() << " ...";
-      }
+		cout << "****************************************************" << endl;
+		cout << "Saving map to pcd files ..." << endl;
+		if(req.destination.empty()) saveMapDirectory = std::getenv("HOME") + savePCDDirectory;
+		else saveMapDirectory = std::getenv("HOME") + req.destination;
+		cout << "Save destination: " << saveMapDirectory << endl;
+		// create directory and remove old files;
+		int unused = system((std::string("exec rm -r ") + saveMapDirectory).c_str());
+		unused = system((std::string("mkdir -p ") + saveMapDirectory).c_str());
+		// save key frame transformations
+		pcl::io::savePCDFileBinary(saveMapDirectory + "/trajectory.pcd", *cloudKeyPoses3D);
+		pcl::io::savePCDFileBinary(saveMapDirectory + "/transformations.pcd", *cloudKeyPoses6D);
+		// extract global point cloud map
+		pcl::PointCloud<PointType>::Ptr globalCornerCloud(new pcl::PointCloud<PointType>());
+		pcl::PointCloud<PointType>::Ptr globalCornerCloudDS(new pcl::PointCloud<PointType>());
+		pcl::PointCloud<PointType>::Ptr globalSurfCloud(new pcl::PointCloud<PointType>());
+		pcl::PointCloud<PointType>::Ptr globalSurfCloudDS(new pcl::PointCloud<PointType>());
+		pcl::PointCloud<PointType>::Ptr globalCyliCloud(new pcl::PointCloud<PointType>());
+		pcl::PointCloud<PointType>::Ptr globalCyliCloudDS(new pcl::PointCloud<PointType>());	  
+		pcl::PointCloud<PointType>::Ptr globalMapCloud(new pcl::PointCloud<PointType>());
+		for (int i = 0; i < (int)cloudKeyPoses3D->size(); i++) {
+			*globalCornerCloud += *transformPointCloud(cornerCloudKeyFrames[i],  &cloudKeyPoses6D->points[i]);
+			*globalSurfCloud   += *transformPointCloud(surfCloudKeyFrames[i],    &cloudKeyPoses6D->points[i]);
+			*globalCyliCloud   += *transformPointCloud(cyliCloudKeyFrames[i],    &cloudKeyPoses6D->points[i]);
+			cout << "\r" << std::flush << "Processing feature cloud " << i << " of " << cloudKeyPoses6D->size() << " ...";
+		}
 
-      if(req.resolution != 0)
-      {
-        cout << "\n\nSave resolution: " << req.resolution << endl;
+		if(req.resolution != 0)
+		{
+			cout << "\n\nSave resolution: " << req.resolution << endl;
 
-        // down-sample and save corner cloud
-        downSizeFilterCorner.setInputCloud(globalCornerCloud);
-        downSizeFilterCorner.setLeafSize(req.resolution, req.resolution, req.resolution);
-        downSizeFilterCorner.filter(*globalCornerCloudDS);
-        pcl::io::savePCDFileBinary(saveMapDirectory + "/CornerMap.pcd", *globalCornerCloudDS);
-        // down-sample and save surf cloud
-        downSizeFilterSurf.setInputCloud(globalSurfCloud);
-        downSizeFilterSurf.setLeafSize(req.resolution, req.resolution, req.resolution);
-        downSizeFilterSurf.filter(*globalSurfCloudDS);
-        pcl::io::savePCDFileBinary(saveMapDirectory + "/SurfMap.pcd", *globalSurfCloudDS);
-      }
-      else
-      {
-        // save corner cloud
-        pcl::io::savePCDFileBinary(saveMapDirectory + "/CornerMap.pcd", *globalCornerCloud);
-        // save surf cloud
-        pcl::io::savePCDFileBinary(saveMapDirectory + "/SurfMap.pcd", *globalSurfCloud);
-      }
+			// down-sample and save corner cloud
+			downSizeFilterCorner.setInputCloud(globalCornerCloud);
+			downSizeFilterCorner.setLeafSize(req.resolution, req.resolution, req.resolution);
+			downSizeFilterCorner.filter(*globalCornerCloudDS);
+			pcl::io::savePCDFileBinary(saveMapDirectory + "/CornerMap.pcd", *globalCornerCloudDS);
+			// down-sample and save surf cloud
+			downSizeFilterSurf.setInputCloud(globalSurfCloud);
+			downSizeFilterSurf.setLeafSize(req.resolution, req.resolution, req.resolution);
+			downSizeFilterSurf.filter(*globalSurfCloudDS);
 
-      // save global point cloud map
-      *globalMapCloud += *globalCornerCloud;
-      *globalMapCloud += *globalSurfCloud;
+			downSizeFilterCyli.setInputCloud(globalCyliCloud);
+			downSizeFilterCyli.setLeafSize(req.resolution, req.resolution, req.resolution);
+			downSizeFilterCyli.filter(*globalCyliCloudDS);		
 
-      int ret = pcl::io::savePCDFileBinary(saveMapDirectory + "/GlobalMap.pcd", *globalMapCloud);
-      res.success = ret == 0;
+			pcl::io::savePCDFileBinary(saveMapDirectory + "/SurfMap.pcd", *globalSurfCloudDS);
+		}
+		else
+		{
+			// save corner cloud
+			pcl::io::savePCDFileBinary(saveMapDirectory + "/CornerMap.pcd", *globalCornerCloud);
+			// save surf cloud
+			pcl::io::savePCDFileBinary(saveMapDirectory + "/SurfMap.pcd", *globalSurfCloud);
+		}
 
-      downSizeFilterCorner.setLeafSize(mappingCornerLeafSize, mappingCornerLeafSize, mappingCornerLeafSize);
-      downSizeFilterSurf.setLeafSize(mappingSurfLeafSize, mappingSurfLeafSize, mappingSurfLeafSize);
+		// save global point cloud map
+		*globalMapCloud += *globalCornerCloud;
+		*globalMapCloud += *globalSurfCloud;
+		*globalMapCloud += *globalCyliCloud;
 
-      cout << "****************************************************" << endl;
-      cout << "Saving map to pcd files completed\n" << endl;
+		int ret = pcl::io::savePCDFileBinary(saveMapDirectory + "/GlobalMap.pcd", *globalMapCloud);
+		res.success = ret == 0;
 
-      return true;
+		downSizeFilterCorner.setLeafSize(mappingCornerLeafSize, mappingCornerLeafSize, mappingCornerLeafSize);
+		downSizeFilterSurf.setLeafSize(mappingSurfLeafSize, mappingSurfLeafSize, mappingSurfLeafSize);
+		downSizeFilterCyli.setLeafSize(mappingCyliLeafSize, mappingCyliLeafSize, mappingCyliLeafSize);
+		
+		cout << "****************************************************" << endl;
+		cout << "Saving map to pcd files completed\n" << endl;
+
+		return true;
     }
 
     void visualizeGlobalMapThread()
@@ -510,6 +539,7 @@ public:
             int thisKeyInd = (int)globalMapKeyPosesDS->points[i].intensity;
             *globalMapKeyFrames += *transformPointCloud(cornerCloudKeyFrames[thisKeyInd],  &cloudKeyPoses6D->points[thisKeyInd]);
             *globalMapKeyFrames += *transformPointCloud(surfCloudKeyFrames[thisKeyInd],    &cloudKeyPoses6D->points[thisKeyInd]);
+			*globalMapKeyFrames += *transformPointCloud(cyliCloudKeyFrames[thisKeyInd],    &cloudKeyPoses6D->points[thisKeyInd]);
         }
         // downsample visualized points
         pcl::VoxelGrid<PointType> downSizeFilterGlobalMapKeyFrames; // for global map visualization
@@ -738,6 +768,7 @@ public:
                 continue;
             *nearKeyframes += *transformPointCloud(cornerCloudKeyFrames[keyNear], &copy_cloudKeyPoses6D->points[keyNear]);
             *nearKeyframes += *transformPointCloud(surfCloudKeyFrames[keyNear],   &copy_cloudKeyPoses6D->points[keyNear]);
+			*nearKeyframes += *transformPointCloud(cyliCloudKeyFrames[keyNear],   &copy_cloudKeyPoses6D->points[keyNear]);
         }
 
         if (nearKeyframes->empty())
@@ -998,7 +1029,7 @@ public:
 		laserCloudCyliLastDS->clear();
         downSizeFilterSurf.setInputCloud(laserCloudCyliLast);
         downSizeFilterSurf.filter(*laserCloudCyliLastDS);
-        laserCloudSurfLastDSNum = laserCloudCyliLastDS->size();
+        laserCloudCyliLastDSNum = laserCloudCyliLastDS->size();
     }
 
     void updatePointAssociateToMap()
@@ -1110,7 +1141,9 @@ public:
             std::vector<float> pointSearchSqDis;
 
             pointOri = laserCloudSurfLastDS->points[i];
+			// 根据当前帧位姿，变换到世界坐标系（map系）下
             pointAssociateToMap(&pointOri, &pointSel); 
+			// better??
             kdtreeSurfFromMap->nearestKSearch(pointSel, 5, pointSearchInd, pointSearchSqDis);
 
             Eigen::Matrix<float, 5, 3> matA0;
@@ -1127,7 +1160,7 @@ public:
                     matA0(j, 1) = laserCloudSurfFromMapDS->points[pointSearchInd[j]].y;
                     matA0(j, 2) = laserCloudSurfFromMapDS->points[pointSearchInd[j]].z;
                 }
-
+				// QR分解 计算X  AX+BY+CZ+1 = 0   平面存储方式可以改
                 matX0 = matA0.colPivHouseholderQr().solve(matB0);
 
                 float pa = matX0(0, 0);
@@ -1169,6 +1202,25 @@ public:
         }
     }
 
+	void cyliOptimization()
+	{
+		updatePointAssociateToMap();
+		#pragma omp parallel for num_threads(numberOfCores)
+		for (int i = 0; i < laserCloudCyliLastDSNum; i++)
+		{
+            PointType pointOri, pointSel, coeff;
+            std::vector<int> pointSearchInd;
+            std::vector<float> pointSearchSqDis;
+
+            pointOri = laserCloudSurfLastDS->points[i];
+			// 根据当前帧位姿，变换到世界坐标系（map系）下
+            pointAssociateToMap(&pointOri, &pointSel); 
+			kdtreeCyliFromMap->nearestKSearch(pointSel, 5, pointSearchInd, pointSearchSqDis);
+
+			// RANSAC拟合圆柱 
+
+		}
+	}
 
     void combineOptimizationCoeffs()
     {

@@ -35,6 +35,8 @@ public:
 	pcl::PointCloud<PointType>::Ptr cylinderCloud;
 	pcl::PointCloud<PointType>::Ptr cylinderNearestCloud;
 
+	pcl::PointCloud<PointType>::Ptr cylinderFilterCloud;
+
     pcl::VoxelGrid<PointType> downSizeFilter;
 
     lio_sam::cloud_info cloudInfo;
@@ -290,9 +292,10 @@ public:
 						{
 							cloudLabel[ind] = 3;		// label 3 used to cal cylinder param
 							cylinderNearestCloud->push_back(extractedCloud->points[ind]);
+
 							// find nearest in next line ? but only 4 line here...
 						}
-						cylinderCloud->push_back(extractedCloud->points[ind]);
+						// cylinderCloud->push_back(extractedCloud->points[ind]);
 					}
                 }
 
@@ -301,7 +304,7 @@ public:
                     if (cloudLabel[k] > 0){
                         cylinderCloudScan->push_back(extractedCloud->points[k]);
                     }
-					if (cloudLabel[k] <= 0){
+					if (cloudLabel[k] < 0){
 						surfaceCloudScan->push_back(extractedCloud->points[k]);
 					}
                 }
@@ -312,13 +315,18 @@ public:
             downSizeFilter.filter(*surfaceCloudScanDS);
 
             cylinderCloudScanDS->clear();
-            downSizeFilter.setInputCloud(surfaceCloudScan);
+            downSizeFilter.setInputCloud(cylinderCloudScan);
             downSizeFilter.filter(*cylinderCloudScanDS);			
 
             *cylinderCloud += *cylinderCloudScanDS;
 			*surfaceCloud += *surfaceCloudScanDS;
         }
     }
+
+	void fitCylinderFunc()
+	{
+		
+	}
 
     void freeCloudInfoMemory()
     {
