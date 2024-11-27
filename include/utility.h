@@ -30,6 +30,7 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/crop_box.h> 
 #include <pcl_conversions/pcl_conversions.h>
+#include <sophus/se3.hpp>
 
 #include <tf/LinearMath/Quaternion.h>
 #include <tf/transform_listener.h>
@@ -313,10 +314,14 @@ public:
 
 class cylinder{
 public:
-	cylinder();
+	cylinder(const std::vector<PointType> points)
+	{
+		
+	}
 private:
-	double r;
-	double omega_m[4];
+    Eigen::Vector3d axis_point;  // 轴线上的一点
+    Eigen::Vector3d axis_dir;    // 轴线方向向量
+    double radius;               // 圆柱半径
 };
 
 template<typename T>

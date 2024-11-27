@@ -17,6 +17,7 @@
 #include <gtsam/inference/Symbol.h>
 
 #include <gtsam/nonlinear/ISAM2.h>
+#include <vector>
 
 using namespace gtsam;
 
@@ -1052,9 +1053,9 @@ public:
             pointAssociateToMap(&pointOri, &pointSel);
             kdtreeCornerFromMap->nearestKSearch(pointSel, 5, pointSearchInd, pointSearchSqDis);
 
-            cv::Mat matA1(3, 3, CV_32F, cv::Scalar::all(0));
-            cv::Mat matD1(1, 3, CV_32F, cv::Scalar::all(0));
-            cv::Mat matV1(3, 3, CV_32F, cv::Scalar::all(0));
+            cv::Mat matA1(3, 3, CV_32F, cv::Scalar::all(0));		// xyz方向上的协方差矩阵
+            cv::Mat matD1(1, 3, CV_32F, cv::Scalar::all(0));		// 特征值
+            cv::Mat matV1(3, 3, CV_32F, cv::Scalar::all(0));		// 特征向量
                     
             if (pointSearchSqDis[4] < 1.0) {
                 float cx = 0, cy = 0, cz = 0;
@@ -1083,11 +1084,13 @@ public:
 
                 cv::eigen(matA1, matD1, matV1);
 
+				// 最大特征值比次大特征值大很多则认为是线特征
                 if (matD1.at<float>(0, 0) > 3 * matD1.at<float>(0, 1)) {
 
                     float x0 = pointSel.x;
                     float y0 = pointSel.y;
                     float z0 = pointSel.z;
+					// 局部map对应中心角点，沿着特征向量（直线方向）方向，前后各取一个点  即最大特征值对应的特征向量
                     float x1 = cx + 0.1 * matV1.at<float>(0, 0);
                     float y1 = cy + 0.1 * matV1.at<float>(0, 1);
                     float z1 = cz + 0.1 * matV1.at<float>(0, 2);
@@ -1095,10 +1098,12 @@ public:
                     float y2 = cy - 0.1 * matV1.at<float>(0, 1);
                     float z2 = cz - 0.1 * matV1.at<float>(0, 2);
 
+					// 这边是在求[(x0-x1),(y0-y1),(z0-z1)]与[(x0-x2),(y0-y2),(z0-z2)]叉乘得到的向量的模长
+					// 
                     float a012 = sqrt(((x0 - x1)*(y0 - y2) - (x0 - x2)*(y0 - y1)) * ((x0 - x1)*(y0 - y2) - (x0 - x2)*(y0 - y1)) 
                                     + ((x0 - x1)*(z0 - z2) - (x0 - x2)*(z0 - z1)) * ((x0 - x1)*(z0 - z2) - (x0 - x2)*(z0 - z1)) 
                                     + ((y0 - y1)*(z0 - z2) - (y0 - y2)*(z0 - z1)) * ((y0 - y1)*(z0 - z2) - (y0 - y2)*(z0 - z1)));
-
+					// 线段x1x1模长
                     float l12 = sqrt((x1 - x2)*(x1 - x2) + (y1 - y2)*(y1 - y2) + (z1 - z2)*(z1 - z2));
 
                     float la = ((y1 - y2)*((x0 - x1)*(y0 - y2) - (x0 - x2)*(y0 - y1)) 
@@ -1201,6 +1206,11 @@ public:
             }
         }
     }
+	
+	cylinder ransacCyliFit(const std::vector<int> & pointInd )
+	{
+		
+	}
 
 	void cyliOptimization()
 	{
@@ -1218,7 +1228,10 @@ public:
 			kdtreeCyliFromMap->nearestKSearch(pointSel, 5, pointSearchInd, pointSearchSqDis);
 
 			// RANSAC拟合圆柱 
+			if (pointSearchSqDis[4] < 0.1)
+			{
 
+			}
 		}
 	}
 
